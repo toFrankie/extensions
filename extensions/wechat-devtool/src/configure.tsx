@@ -1,6 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { List, ActionPanel, Action, showToast, Toast, Icon, useNavigation, confirmAlert, Alert } from "@raycast/api";
-import { getCurrentDeviceName, getAllDeviceConfigs, saveConfig } from "./utils/config";
+import {
+  getCurrentDeviceName,
+  getAllDeviceConfigs,
+  saveConfig,
+  isDeviceNameExists,
+  generateDeviceId,
+} from "./utils/config";
 import { Config, DeviceConfig } from "./types";
 import DeviceForm from "./device-form";
 
@@ -17,7 +23,6 @@ interface FormData {
 export default function Configure() {
   const [devices, setDevices] = useState<Config>({});
   const [isLoading, setIsLoading] = useState(true);
-  const [editingDevice, setEditingDevice] = useState<string | null>(null);
   const { push } = useNavigation();
 
   useEffect(() => {
@@ -42,57 +47,72 @@ export default function Configure() {
   }
 
   async function handleAddDevice() {
-    setEditingDevice(null);
+    const allDeviceNames = Object.values(devices).map((d) => d.name);
     push(
       <DeviceForm
+        allDeviceNames={allDeviceNames}
         initialData={{
           deviceName: "",
           cliPath: "/Applications/wechatwebdevtools.app/Contents/MacOS/cli",
           projects: [],
         }}
         onSave={handleSaveDevice}
-        onCancel={() => setEditingDevice(null)}
+        onCancel={() => {}}
       />,
     );
   }
 
-  async function handleEditDevice(deviceName: string) {
-    const deviceConfig = devices[deviceName];
+  async function handleEditDevice(deviceId: string) {
+    const deviceConfig = devices[deviceId];
     if (!deviceConfig) return;
-
-    setEditingDevice(deviceName);
+    // 排除自己
+    const allDeviceNames = Object.entries(devices)
+      .filter(([id]) => id !== deviceId)
+      .map(([, d]) => d.name);
     push(
       <DeviceForm
+        deviceId={deviceId}
+        allDeviceNames={allDeviceNames}
         initialData={{
-          deviceName: deviceName,
+          deviceName: deviceConfig.name,
           cliPath: deviceConfig.cliPath,
           projects: deviceConfig.projects,
         }}
         onSave={handleSaveDevice}
-        onCancel={() => setEditingDevice(null)}
+        onCancel={() => {}}
       />,
     );
   }
 
-  async function handleSaveDevice(data: FormData) {
+  async function handleSaveDevice(data: FormData, deviceId?: string) {
     try {
+      // 检查设备名称唯一性
+      const isDuplicate = isDeviceNameExists(data.deviceName, deviceId || undefined);
+      if (isDuplicate) {
+        await showToast({
+          style: Toast.Style.Failure,
+          title: "设备名称重复",
+          message: `设备名称 "${data.deviceName}" 已存在，请使用其他名称`,
+        });
+        return;
+      }
+
       const deviceConfig: DeviceConfig = {
+        name: data.deviceName,
         cliPath: data.cliPath,
         projects: data.projects,
       };
 
-      // 更新设备配置
       const updatedDevices = { ...devices };
-
-      // 如果是编辑现有设备且设备名发生变化，需要删除旧配置
-      if (editingDevice && editingDevice !== data.deviceName) {
-        delete updatedDevices[editingDevice];
+      if (deviceId) {
+        // 编辑时始终用原 UUID 覆盖
+        updatedDevices[deviceId] = deviceConfig;
+      } else {
+        // 新增
+        const newDeviceId = generateDeviceId();
+        updatedDevices[newDeviceId] = deviceConfig;
       }
-
-      updatedDevices[data.deviceName] = deviceConfig;
       setDevices(updatedDevices);
-
-      // 保存到文件
       saveConfig(updatedDevices);
 
       await showToast({
@@ -100,8 +120,6 @@ export default function Configure() {
         title: "保存成功",
         message: `设备 "${data.deviceName}" 配置已保存`,
       });
-
-      setEditingDevice(null);
     } catch (error) {
       console.error("Failed to save device:", error);
       await showToast({
@@ -112,10 +130,13 @@ export default function Configure() {
     }
   }
 
-  async function handleDeleteDevice(deviceName: string) {
+  async function handleDeleteDevice(deviceId: string) {
+    const deviceConfig = devices[deviceId];
+    if (!deviceConfig) return;
+
     const confirmed = await confirmAlert({
       title: "删除设备",
-      message: `确定要删除设备 "${deviceName}" 及其所有项目配置吗？`,
+      message: `确定要删除设备 "${deviceConfig.name}" 及其所有项目配置吗？`,
       primaryAction: {
         title: "删除",
         style: Alert.ActionStyle.Destructive,
@@ -124,7 +145,7 @@ export default function Configure() {
 
     if (confirmed) {
       const updatedDevices = { ...devices };
-      delete updatedDevices[deviceName];
+      delete updatedDevices[deviceId];
       setDevices(updatedDevices);
 
       // 保存到文件
@@ -133,7 +154,7 @@ export default function Configure() {
       await showToast({
         style: Toast.Style.Success,
         title: "删除成功",
-        message: `设备 "${deviceName}" 已删除`,
+        message: `设备 "${deviceConfig.name}" 已删除`,
       });
     }
   }
@@ -160,29 +181,25 @@ export default function Configure() {
         </ActionPanel>
       }
     >
-      {Object.entries(devices).map(([deviceName, deviceConfig]) => (
+      {Object.entries(devices).map(([deviceId, deviceConfig]) => (
         <List.Item
-          key={deviceName}
+          key={deviceId}
           icon={Icon.ComputerChip}
-          title={deviceName}
+          title={deviceConfig.name}
           subtitle={`${deviceConfig.projects.length} 个项目`}
-          accessories={[
-            {
-              text: deviceConfig.cliPath,
-              icon: Icon.Gear,
-            },
-            ...(deviceName === getCurrentDeviceName()
+          accessories={
+            deviceConfig.name === getCurrentDeviceName()
               ? [
                   {
                     text: "当前设备",
                     icon: Icon.Info,
                   },
                 ]
-              : []),
-          ]}
+              : []
+          }
           actions={
             <ActionPanel>
-              <Action title="编辑设备" icon={Icon.Pencil} onAction={() => handleEditDevice(deviceName)} />
+              <Action title="编辑设备" icon={Icon.Pencil} onAction={() => handleEditDevice(deviceId)} />
               <Action
                 title="新增设备"
                 icon={Icon.Plus}
@@ -193,9 +210,10 @@ export default function Configure() {
                 title="删除设备"
                 icon={Icon.Trash}
                 style={Action.Style.Destructive}
-                onAction={() => handleDeleteDevice(deviceName)}
+                onAction={() => handleDeleteDevice(deviceId)}
               />
-              <Action.CopyToClipboard title="复制 Cli 路径" content={deviceConfig.cliPath} />
+              <Action.CopyToClipboard title="复制设备名称" content={deviceConfig.name} />
+              <Action.CopyToClipboard title="复制设备 Id" content={deviceId} />
             </ActionPanel>
           }
         />

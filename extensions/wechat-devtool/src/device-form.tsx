@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Form, ActionPanel, Action, Icon, useNavigation, showToast, Toast } from "@raycast/api";
+import React, { useState, useEffect } from "react";
+import { Form, ActionPanel, Action, Icon, useNavigation } from "@raycast/api";
 import { generateProjectId } from "./utils/config";
 import { Project } from "./types";
 
@@ -14,16 +14,39 @@ interface FormData {
 }
 
 interface DeviceFormProps {
+  deviceId?: string;
+  allDeviceNames: string[];
   initialData: FormData;
-  onSave: (data: FormData) => Promise<void> | void;
+  onSave: (data: FormData, deviceId?: string) => Promise<void> | void;
   onCancel: () => void;
 }
 
-const DeviceForm: React.FC<DeviceFormProps> = ({ initialData, onSave, onCancel }) => {
+const DeviceForm: React.FC<DeviceFormProps> = ({ deviceId, allDeviceNames, initialData, onSave, onCancel }) => {
   const [projects, setProjects] = useState(initialData.projects);
   const [deviceName, setDeviceName] = useState(initialData.deviceName);
   const [cliPath, setCliPath] = useState(initialData.cliPath ? [initialData.cliPath] : []);
+  const [nameError, setNameError] = useState<string | undefined>();
+  const [cliError, setCliError] = useState<string | undefined>();
+  const [errorVisible, setErrorVisible] = useState(false);
   const { pop } = useNavigation();
+
+  useEffect(() => {
+    if (!deviceName.trim()) {
+      setNameError("设备名称为必填项");
+    } else if (allDeviceNames.includes(deviceName.trim())) {
+      setNameError("设备名称已存在，请输入唯一名称");
+    } else {
+      setNameError(undefined);
+    }
+  }, [deviceName, allDeviceNames]);
+
+  useEffect(() => {
+    if (!cliPath[0]) {
+      setCliError("CLI 路径为必填项");
+    } else {
+      setCliError(undefined);
+    }
+  }, [cliPath]);
 
   function addProject() {
     const newProject = {
@@ -37,10 +60,6 @@ const DeviceForm: React.FC<DeviceFormProps> = ({ initialData, onSave, onCancel }
   function removeProject(index: number) {
     const updatedProjects = projects.filter((_, i) => i !== index);
     setProjects(updatedProjects);
-    showToast({
-      style: Toast.Style.Success,
-      title: "项目已删除",
-    });
   }
 
   function updateProject(index: number, field: keyof Project, value: string) {
@@ -50,23 +69,23 @@ const DeviceForm: React.FC<DeviceFormProps> = ({ initialData, onSave, onCancel }
   }
 
   async function handleSubmit() {
-    if (!deviceName.trim()) {
-      await showToast({ style: Toast.Style.Failure, title: "设备名称不能为空" });
+    if (nameError || cliError) {
+      setErrorVisible(true);
+      setTimeout(() => {
+        setErrorVisible(false);
+      }, 3000);
       return;
     }
-    if (cliPath.length === 0) {
-      await showToast({ style: Toast.Style.Failure, title: "CLI 路径不能为空" });
-      return;
-    }
-
     // 过滤掉不完整的项目（名称或路径为空）
     const validProjects = projects.filter((p) => p.name.trim() && p.path.trim());
-
-    await onSave({
-      deviceName: deviceName.trim(),
-      cliPath: cliPath[0] || "",
-      projects: validProjects,
-    });
+    await onSave(
+      {
+        deviceName: deviceName.trim(),
+        cliPath: cliPath[0] || "",
+        projects: validProjects,
+      },
+      deviceId,
+    );
     pop();
   }
 
@@ -89,7 +108,14 @@ const DeviceForm: React.FC<DeviceFormProps> = ({ initialData, onSave, onCancel }
               />
             );
           })}
-          <Action title="取消" icon={Icon.Xmark} onAction={onCancel} />
+          <Action
+            title="取消"
+            icon={Icon.Xmark}
+            onAction={() => {
+              onCancel();
+              pop();
+            }}
+          />
         </ActionPanel>
       }
     >
@@ -99,6 +125,7 @@ const DeviceForm: React.FC<DeviceFormProps> = ({ initialData, onSave, onCancel }
         placeholder="输入设备名称"
         value={deviceName}
         onChange={setDeviceName}
+        error={errorVisible ? nameError : undefined}
         info="建议使用 scutil --get ComputerName 获取的设备名称"
       />
 
@@ -110,6 +137,7 @@ const DeviceForm: React.FC<DeviceFormProps> = ({ initialData, onSave, onCancel }
         allowMultipleSelection={false}
         value={cliPath}
         onChange={setCliPath}
+        error={errorVisible ? cliError : undefined}
         info="微信开发者工具 CLI 的完整路径"
       />
 

@@ -4,13 +4,13 @@ import { readFileSync, writeFileSync, existsSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
 import { Config, DeviceConfig, Project } from "../types";
+import { execSync } from "child_process";
 
 const CONFIG_PATH = join(homedir(), ".config", "raycast-weapp.json");
 
 export function getCurrentDeviceName(): string {
   try {
-    // return execSync("/usr/sbin/scutil --get ComputerName", { encoding: "utf8" }).trim();
-    return "Frankie's-iMac".trim();
+    return execSync("/usr/sbin/scutil --get ComputerName", { encoding: "utf8" }).trim();
   } catch (error) {
     console.error("Failed to get computer name:", error);
     return "Unknown Device";
@@ -41,18 +41,27 @@ export function saveConfig(config: Config): void {
 export function getCurrentDeviceConfig(): DeviceConfig | null {
   const currentDeviceName = getCurrentDeviceName();
   const deviceConfigs = loadConfig();
-  let deviceConfig = deviceConfigs[currentDeviceName];
-  if (!deviceConfig) {
-    // 只回退到 __default__，否则返回 null
-    deviceConfig = deviceConfigs["__default__"];
+
+  // 查找当前设备名称对应的配置
+  for (const [, deviceConfig] of Object.entries(deviceConfigs)) {
+    if (deviceConfig.name === currentDeviceName) {
+      return deviceConfig;
+    }
   }
-  if (!deviceConfig) {
-    deviceConfig = {
-      cliPath: "/Applications/wechatwebdevtools.app/Contents/MacOS/cli",
-      projects: [],
-    };
+
+  // 如果没有找到，回退到 __default__ 设备
+  for (const [, deviceConfig] of Object.entries(deviceConfigs)) {
+    if (deviceConfig.name === "__default__") {
+      return deviceConfig;
+    }
   }
-  return deviceConfig;
+
+  // 如果都没有找到，返回默认配置
+  return {
+    name: currentDeviceName,
+    cliPath: "/Applications/wechatwebdevtools.app/Contents/MacOS/cli",
+    projects: [],
+  };
 }
 
 export function getAllDeviceConfigs(): Config {
@@ -62,45 +71,76 @@ export function getAllDeviceConfigs(): Config {
 export function getCurrentDeviceNameWithFallback(): string {
   const currentDeviceName = getCurrentDeviceName();
   const deviceConfigs = loadConfig();
-  if (deviceConfigs[currentDeviceName]) {
-    return currentDeviceName;
+
+  // 查找当前设备名称
+  for (const [, deviceConfig] of Object.entries(deviceConfigs)) {
+    if (deviceConfig.name === currentDeviceName) {
+      return currentDeviceName;
+    }
   }
-  // 只回退到 __default__
+
+  // 回退到 __default__ 设备
+  for (const [, deviceConfig] of Object.entries(deviceConfigs)) {
+    if (deviceConfig.name === "__default__") {
+      return "__default__";
+    }
+  }
+
   return "__default__";
 }
 
-export function updateDeviceConfig(deviceName: string, deviceConfig: DeviceConfig): void {
+export function updateDeviceConfig(deviceId: string, deviceConfig: DeviceConfig): void {
   const config = loadConfig();
-  config[deviceName] = deviceConfig;
+  config[deviceId] = deviceConfig;
   saveConfig(config);
 }
 
-export function addProjectToDevice(deviceName: string, project: Project): void {
+export function addProjectToDevice(deviceId: string, project: Project): void {
   const config = loadConfig();
-  if (!config[deviceName]) {
-    config[deviceName] = { cliPath: "", projects: [] };
+  if (!config[deviceId]) {
+    config[deviceId] = { name: "", cliPath: "", projects: [] };
   }
-  config[deviceName].projects.push(project);
+  config[deviceId].projects.push(project);
   saveConfig(config);
 }
 
-export function removeProjectFromDevice(deviceName: string, projectId: string): void {
+export function removeProjectFromDevice(deviceId: string, projectId: string): void {
   const config = loadConfig();
-  if (config[deviceName]) {
-    config[deviceName].projects = config[deviceName].projects.filter((project) => project.id !== projectId);
+  if (config[deviceId]) {
+    config[deviceId].projects = config[deviceId].projects.filter((project) => project.id !== projectId);
     saveConfig(config);
   }
 }
 
-export function deleteDevice(deviceName: string): void {
+export function deleteDevice(deviceId: string): void {
   const config = loadConfig();
-  if (config[deviceName]) {
-    delete config[deviceName];
+  if (config[deviceId]) {
+    delete config[deviceId];
     saveConfig(config);
   }
 }
 
-export async function findWechatDevtool(): Promise<string | null> {
+export function isDeviceNameExists(deviceName: string, excludeDeviceId?: string): boolean {
+  const config = loadConfig();
+  for (const [deviceId, deviceConfig] of Object.entries(config)) {
+    if (deviceConfig.name === deviceName && deviceId !== excludeDeviceId) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function getDeviceIdByName(deviceName: string): string | null {
+  const config = loadConfig();
+  for (const [deviceId, deviceConfig] of Object.entries(config)) {
+    if (deviceConfig.name === deviceName) {
+      return deviceId;
+    }
+  }
+  return null;
+}
+
+export async function findWeChatDevtool(): Promise<string | null> {
   try {
     const applications = await getApplications();
     const wechatDevtool = applications.find(
@@ -116,5 +156,9 @@ export async function findWechatDevtool(): Promise<string | null> {
 }
 
 export function generateProjectId(): string {
+  return randomUUID();
+}
+
+export function generateDeviceId(): string {
   return randomUUID();
 }

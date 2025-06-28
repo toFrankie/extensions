@@ -5,10 +5,11 @@ export interface Project {
 }
 
 export interface Config {
-  [deviceName: string]: DeviceConfig;
+  [deviceId: string]: DeviceConfig;
 }
 
 export interface DeviceConfig {
+  name: string;
   cliPath: string;
   projects: Project[];
 }
