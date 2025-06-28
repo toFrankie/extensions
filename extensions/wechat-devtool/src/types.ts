@@ -1,12 +1,14 @@
-export type Project = {
+export interface Project {
   id: string;
   name: string;
   path: string;
-};
+}
 
-export type DeviceConfig = {
+export interface Config {
+  [deviceName: string]: DeviceConfig;
+}
+
+export interface DeviceConfig {
   cliPath: string;
   projects: Project[];
-};
-
-export type AllConfig = Record<string, DeviceConfig>;
+}
