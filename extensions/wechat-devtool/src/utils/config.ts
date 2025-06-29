@@ -1,12 +1,25 @@
-import { getApplications } from "@raycast/api";
+import { getApplications, showToast, Toast, environment } from "@raycast/api";
 import { randomUUID } from "crypto";
-import { readFileSync, writeFileSync, existsSync } from "fs";
-import { homedir } from "os";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join } from "path";
 import { Config, DeviceConfig, Project } from "../types";
 import { execSync } from "child_process";
 
-const CONFIG_PATH = join(homedir(), ".config", "raycast-weapp.json");
+interface DeviceOperationResult {
+  success: boolean;
+  error?: string;
+  deviceId?: string;
+  deviceName?: string;
+}
+
+const CONFIG_DIR = environment.supportPath;
+const CONFIG_PATH = join(CONFIG_DIR, "config.json");
+
+function ensureConfigDir() {
+  if (!existsSync(CONFIG_DIR)) {
+    mkdirSync(CONFIG_DIR, { recursive: true });
+  }
+}
 
 export function getCurrentDeviceName(): string {
   try {
@@ -19,6 +32,7 @@ export function getCurrentDeviceName(): string {
 
 export function loadConfig(): Config {
   try {
+    ensureConfigDir();
     if (existsSync(CONFIG_PATH)) {
       const content = readFileSync(CONFIG_PATH, "utf8");
       return JSON.parse(content);
@@ -31,6 +45,7 @@ export function loadConfig(): Config {
 
 export function saveConfig(config: Config): void {
   try {
+    ensureConfigDir();
     writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
   } catch (error) {
     console.error("Failed to save config:", error);
@@ -42,21 +57,19 @@ export function getCurrentDeviceConfig(): DeviceConfig | null {
   const currentDeviceName = getCurrentDeviceName();
   const deviceConfigs = loadConfig();
 
-  // 查找当前设备名称对应的配置
   for (const [, deviceConfig] of Object.entries(deviceConfigs)) {
     if (deviceConfig.name === currentDeviceName) {
       return deviceConfig;
     }
   }
 
-  // 如果没有找到，回退到 __default__ 设备
+  // TODO:
   for (const [, deviceConfig] of Object.entries(deviceConfigs)) {
     if (deviceConfig.name === "__default__") {
       return deviceConfig;
     }
   }
 
-  // 如果都没有找到，返回默认配置
   return {
     name: currentDeviceName,
     cliPath: "/Applications/wechatwebdevtools.app/Contents/MacOS/cli",
@@ -72,14 +85,13 @@ export function getCurrentDeviceNameWithFallback(): string {
   const currentDeviceName = getCurrentDeviceName();
   const deviceConfigs = loadConfig();
 
-  // 查找当前设备名称
   for (const [, deviceConfig] of Object.entries(deviceConfigs)) {
     if (deviceConfig.name === currentDeviceName) {
       return currentDeviceName;
     }
   }
 
-  // 回退到 __default__ 设备
+  // TODO:
   for (const [, deviceConfig] of Object.entries(deviceConfigs)) {
     if (deviceConfig.name === "__default__") {
       return "__default__";
@@ -161,4 +173,30 @@ export function generateProjectId(): string {
 
 export function generateDeviceId(): string {
   return randomUUID();
+}
+
+export async function saveOrUpdateDevice(data: DeviceConfig, deviceId?: string): Promise<DeviceOperationResult> {
+  const config = getAllDeviceConfigs();
+
+  const isDuplicate = Object.entries(config).some(([id, d]) => d.name === data.name && id !== deviceId);
+  if (isDuplicate) {
+    await showToast({
+      style: Toast.Style.Failure,
+      title: "设备名称重复",
+      message: `设备名称 "${data.name}" 已存在，请使用其他名称`,
+    });
+    return { success: false, error: "duplicate" };
+  }
+  let id = deviceId;
+  if (!id) {
+    id = generateDeviceId();
+  }
+  config[id] = data;
+  saveConfig(config);
+  await showToast({
+    style: Toast.Style.Success,
+    title: "保存成功",
+    message: `设备 "${data.name}" 配置已保存`,
+  });
+  return { success: true, deviceId: id, deviceName: data.name };
 }

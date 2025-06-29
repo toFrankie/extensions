@@ -8,6 +8,14 @@ export interface CliResult {
   success: boolean;
   message: string;
   error?: string;
+  stdout?: string;
+  stderr?: string;
+  code?: number;
+}
+
+interface OperationResult {
+  success: boolean;
+  error?: string;
 }
 
 interface ExecError extends Error {
@@ -21,7 +29,7 @@ export async function executeCliCommand(cliPath: string, args: string[]): Promis
     console.log(`Executing: ${command}`);
 
     const { stdout, stderr } = await execAsync(command, {
-      timeout: 30000, // 30 seconds timeout
+      timeout: 30000,
     });
 
     if (stderr) {
@@ -31,6 +39,8 @@ export async function executeCliCommand(cliPath: string, args: string[]): Promis
     return {
       success: true,
       message: stdout.trim() || "Command executed successfully",
+      stdout: stdout.trim(),
+      stderr: stderr.trim(),
     };
   } catch (error: unknown) {
     console.error("CLI execution failed:", error);
@@ -53,16 +63,13 @@ export async function executeCliCommand(cliPath: string, args: string[]): Promis
       success: false,
       message: "Command execution failed",
       error: errorMessage,
+      stderr: execError.stderr,
+      code: typeof execError.code === "number" ? execError.code : undefined,
     };
   }
 }
 
-export interface OpenProjectResult {
-  success: boolean;
-  error?: string;
-}
-
-export async function openProject(cliPath: string, projectPath: string): Promise<OpenProjectResult> {
+export async function openProject(cliPath: string, projectPath: string): Promise<OperationResult> {
   try {
     const command = `"${cliPath}" open --project "${projectPath}"`;
     const { stderr } = await execAsync(command);

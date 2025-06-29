@@ -1,8 +1,14 @@
 import React, { useState, useEffect } from "react";
-import { List, ActionPanel, Action, showToast, Toast, Icon, closeMainWindow } from "@raycast/api";
-import { getCurrentDeviceConfig, getCurrentDeviceName, getCurrentDeviceNameWithFallback } from "./utils/config";
+import { List, ActionPanel, Action, showToast, Toast, Icon, closeMainWindow, useNavigation } from "@raycast/api";
+import {
+  getCurrentDeviceConfig,
+  getCurrentDeviceName,
+  getCurrentDeviceNameWithFallback,
+  getAllDeviceConfigs,
+} from "./utils/config";
 import { openProject } from "./utils/cli";
 import { Project, DeviceConfig } from "./types";
+import Configure from "./configure";
 
 export default function OpenProject() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -12,8 +18,18 @@ export default function OpenProject() {
   const [currentDeviceName, setCurrentDeviceName] = useState("");
   const [effectiveDeviceName, setEffectiveDeviceName] = useState("");
   const [hasConfigurationError, setHasConfigurationError] = useState(false);
+  const { push } = useNavigation();
 
   useEffect(() => {
+    const allDevices = getAllDeviceConfigs();
+    const deviceEntries = Object.entries(allDevices);
+    const deviceList = deviceEntries.map(([, d]) => d);
+    const hasNoDevice = deviceList.length === 0;
+
+    if (hasNoDevice) {
+      push(<Configure />);
+      return;
+    }
     loadProjects();
   }, []);
 
@@ -50,16 +66,7 @@ export default function OpenProject() {
   }
 
   async function handleOpenProject(project: Project) {
-    if (!deviceConfig?.cliPath) {
-      await showToast({
-        style: Toast.Style.Failure,
-        title: "❌ 失败",
-        message: "CLI 路径未配置，请在配置界面中设置",
-      });
-      return;
-    }
-
-    const result = await openProject(deviceConfig.cliPath, project.path);
+    const result = await openProject(deviceConfig!.cliPath, project.path);
 
     if (result.success) {
       await showToast({
@@ -104,32 +111,7 @@ export default function OpenProject() {
                 title="打开配置界面"
                 icon={Icon.Gear}
                 onAction={() => {
-                  // 这里可以添加导航到配置界面的逻辑
-                  console.log("Navigate to configure");
-                }}
-              />
-            </ActionPanel>
-          }
-        />
-      </List>
-    );
-  }
-
-  if (!deviceConfig?.cliPath) {
-    return (
-      <List>
-        <List.EmptyView
-          icon={Icon.ExclamationMark}
-          title="CLI 路径未配置"
-          description="请在配置界面中设置微信开发者工具 CLI 路径"
-          actions={
-            <ActionPanel>
-              <Action
-                title="打开配置界面"
-                icon={Icon.Gear}
-                onAction={() => {
-                  // 这里可以添加导航到配置界面的逻辑
-                  console.log("Navigate to configure");
+                  push(<Configure />);
                 }}
               />
             </ActionPanel>
@@ -157,9 +139,9 @@ export default function OpenProject() {
                 title="打开配置界面"
                 icon={Icon.Gear}
                 onAction={() => {
-                  // 这里可以添加导航到配置界面的逻辑
-                  console.log("Navigate to configure");
+                  push(<Configure />);
                 }}
+                shortcut={{ modifiers: [], key: "return" }}
               />
             </ActionPanel>
           }
@@ -176,33 +158,22 @@ export default function OpenProject() {
           icon={Icon.Folder}
           title={project.name}
           subtitle={project.path}
-          accessories={[
-            {
-              text: effectiveDeviceName,
-              icon: Icon.ComputerChip,
-            },
-            ...(currentDeviceName !== effectiveDeviceName
-              ? [
-                  {
-                    text: "使用默认配置",
-                    icon: Icon.Info,
-                  },
-                ]
-              : []),
-          ]}
+          accessories={
+            currentDeviceName !== effectiveDeviceName
+              ? [{ text: `使用设备 "${effectiveDeviceName}" 配置`, icon: Icon.Info }]
+              : []
+          }
           actions={
             <ActionPanel>
-              <Action title="打开项目" icon={Icon.Play} onAction={() => handleOpenProject(project)} />
-              <Action.CopyToClipboard
-                title="复制项目路径"
-                content={project.path}
-                shortcut={{ modifiers: ["cmd"], key: "c" }}
+              <Action
+                title="打开项目"
+                icon={Icon.Play}
+                onAction={() => handleOpenProject(project)}
+                shortcut={{ modifiers: [], key: "return" }}
               />
-              <Action.OpenInBrowser
-                title="在访达中显示"
-                url={`file://${project.path}`}
-                shortcut={{ modifiers: ["cmd"], key: "o" }}
-              />
+              <Action title="打开配置界面" icon={Icon.Gear} onAction={() => push(<Configure />)} />
+              <Action.CopyToClipboard title="复制项目名称" content={project.name} />
+              <Action.CopyToClipboard title="复制项目路径" content={project.path} />
             </ActionPanel>
           }
         />

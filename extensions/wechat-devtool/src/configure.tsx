@@ -1,28 +1,12 @@
 import React, { useState, useEffect } from "react";
 import { List, ActionPanel, Action, showToast, Toast, Icon, useNavigation, confirmAlert, Alert } from "@raycast/api";
-import {
-  getCurrentDeviceName,
-  getAllDeviceConfigs,
-  saveConfig,
-  isDeviceNameExists,
-  generateDeviceId,
-} from "./utils/config";
-import { Config, DeviceConfig } from "./types";
-import DeviceForm from "./device-form";
-
-interface FormData {
-  deviceName: string;
-  cliPath: string;
-  projects: {
-    id: string;
-    name: string;
-    path: string;
-  }[];
-}
+import { getCurrentDeviceName, getAllDeviceConfigs, saveConfig } from "./utils/config";
+import DeviceForm from "./components/device-form";
+import { Config } from "./types";
 
 export default function Configure() {
   const [devices, setDevices] = useState<Config>({});
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
   const { push } = useNavigation();
 
   useEffect(() => {
@@ -47,17 +31,13 @@ export default function Configure() {
   }
 
   async function handleAddDevice() {
-    const allDeviceNames = Object.values(devices).map((d) => d.name);
     push(
       <DeviceForm
-        allDeviceNames={allDeviceNames}
         initialData={{
-          deviceName: "",
           cliPath: "/Applications/wechatwebdevtools.app/Contents/MacOS/cli",
           projects: [],
         }}
-        onSave={handleSaveDevice}
-        onCancel={() => {}}
+        onSuccess={loadDevices}
       />,
     );
   }
@@ -65,69 +45,17 @@ export default function Configure() {
   async function handleEditDevice(deviceId: string) {
     const deviceConfig = devices[deviceId];
     if (!deviceConfig) return;
-    // 排除自己
-    const allDeviceNames = Object.entries(devices)
-      .filter(([id]) => id !== deviceId)
-      .map(([, d]) => d.name);
     push(
       <DeviceForm
-        deviceId={deviceId}
-        allDeviceNames={allDeviceNames}
         initialData={{
-          deviceName: deviceConfig.name,
+          id: deviceId,
+          name: deviceConfig.name,
           cliPath: deviceConfig.cliPath,
           projects: deviceConfig.projects,
         }}
-        onSave={handleSaveDevice}
-        onCancel={() => {}}
+        onSuccess={loadDevices}
       />,
     );
-  }
-
-  async function handleSaveDevice(data: FormData, deviceId?: string) {
-    try {
-      // 检查设备名称唯一性
-      const isDuplicate = isDeviceNameExists(data.deviceName, deviceId || undefined);
-      if (isDuplicate) {
-        await showToast({
-          style: Toast.Style.Failure,
-          title: "设备名称重复",
-          message: `设备名称 "${data.deviceName}" 已存在，请使用其他名称`,
-        });
-        return;
-      }
-
-      const deviceConfig: DeviceConfig = {
-        name: data.deviceName,
-        cliPath: data.cliPath,
-        projects: data.projects,
-      };
-
-      const updatedDevices = { ...devices };
-      if (deviceId) {
-        // 编辑时始终用原 UUID 覆盖
-        updatedDevices[deviceId] = deviceConfig;
-      } else {
-        // 新增
-        const newDeviceId = generateDeviceId();
-        updatedDevices[newDeviceId] = deviceConfig;
-      }
-      setDevices(updatedDevices);
-      saveConfig(updatedDevices);
-
-      await showToast({
-        style: Toast.Style.Success,
-        title: "保存成功",
-        message: `设备 "${data.deviceName}" 配置已保存`,
-      });
-    } catch (error) {
-      console.error("Failed to save device:", error);
-      await showToast({
-        style: Toast.Style.Failure,
-        title: "保存失败",
-        message: "无法保存设备配置",
-      });
-    }
   }
 
   async function handleDeleteDevice(deviceId: string) {
@@ -136,10 +64,14 @@ export default function Configure() {
 
     const confirmed = await confirmAlert({
       title: "删除设备",
-      message: `确定要删除设备 "${deviceConfig.name}" 及其所有项目配置吗？`,
+      message: `确定要删除设备 "${deviceConfig.name}" 及其所有项目配置吗？此操作无法撤销。`,
       primaryAction: {
         title: "删除",
         style: Alert.ActionStyle.Destructive,
+      },
+      dismissAction: {
+        title: "取消",
+        style: Alert.ActionStyle.Cancel,
       },
     });
 
@@ -147,8 +79,6 @@ export default function Configure() {
       const updatedDevices = { ...devices };
       delete updatedDevices[deviceId];
       setDevices(updatedDevices);
-
-      // 保存到文件
       saveConfig(updatedDevices);
 
       await showToast({
@@ -159,16 +89,9 @@ export default function Configure() {
     }
   }
 
-  if (isLoading) {
-    return (
-      <List isLoading={true}>
-        <List.EmptyView title="加载中..." description="正在加载设备配置..." />
-      </List>
-    );
-  }
-
   return (
     <List
+      isLoading={isLoading}
       searchBarPlaceholder="搜索设备..."
       actions={
         <ActionPanel>
@@ -184,7 +107,7 @@ export default function Configure() {
       {Object.entries(devices).map(([deviceId, deviceConfig]) => (
         <List.Item
           key={deviceId}
-          icon={Icon.ComputerChip}
+          icon={Icon.Devices}
           title={deviceConfig.name}
           subtitle={`${deviceConfig.projects.length} 个项目`}
           accessories={
@@ -221,7 +144,7 @@ export default function Configure() {
 
       {Object.keys(devices).length === 0 && (
         <List.EmptyView
-          icon={Icon.ComputerChip}
+          icon={Icon.Devices}
           title="暂无设备配置"
           description="点击下方 Actions 面板新增设备 (⌘N)"
           actions={
